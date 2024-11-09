@@ -1,2 +1,1 @@
-# vlm-ad
-Vision Langue Models for Autonomous Driving 
+# Vision Langue Models for Autonomous Driving 
