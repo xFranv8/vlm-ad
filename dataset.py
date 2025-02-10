@@ -1,56 +1,64 @@
-
+import json
 import os
-
-from utils import load_llama_tokenizer
 
 import numpy as np
 import pandas as pd
 from PIL import Image
 import torch
+from torchvision import transforms
 from torch.utils.data import Dataset
 
 
-class LingoQA(Dataset):
-    def __init__(self, dataframe: pd.DataFrame, segments_path: str):
-        self.path: str = segments_path
+class PDMLiteDataset(Dataset):
+    def __init__(self, path: str):
+        self.path: str = path
 
-        self.dataframe: pd.DataFrame = dataframe
+        self.paths: list[str] = self.__load_paths()
 
-        self.tokenizer = load_llama_tokenizer()
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+    
+    def __load_paths(self) -> list[str]:
+        base_paths: list[str] = list(sorted(os.listdir(self.path)))
+
+        paths: list[str] = list()
+
+        for base_path in base_paths:
+            route_town_path: list[str] = list(sorted(os.listdir(os.path.join(self.path, base_path))))
+            for path in route_town_path:
+                if not os.path.exists(os.path.join(self.path, base_path, path, "rgb")):
+                    continue
+
+                steps: list[str] = list(sorted(os.listdir(os.path.join(self.path, base_path, path, "rgb"))))
+                for step in steps:
+                    full_path = os.path.join(self.path, base_path, path, "rgb", step)
+                    paths.append(full_path)
+        
+        return paths
 
     def __len__(self):
-        return len(self.dataframe)
+        return len(self.paths)
 
     def __getitem__(self, idx):
-        segment: str = self.dataframe["segment_id"].iloc[idx]
-        questions: list = self.dataframe[self.dataframe["segment_id"] == segment]["question"].tolist()
-        questions_ids: list = self.dataframe[self.dataframe["segment_id"] == segment]["question_id"].tolist()
-        answers: list = list()
+        path = self.paths[idx]
 
-        for id in questions_ids:
-            answers.append(self.dataframe[self.dataframe["question_id"] == id]["answer"].iloc[0])
+        image = Image.open(path)
+        image = np.array(image)
+        image = self.transform(image)
+        image = image.unsqueeze(0)
+
+        measurements_path = path.replace("rgb", "measurements").replace("jpg", "json")
         
-        images: list[np.ndarray] = list()
-        for i in range(5):
-            image: np.array = np.array(Image.open(os.path.join(self.path, f"{segment}/{i}.jpg")))
-            image = torch.from_numpy(image)
-            images.append(image)
+        with open(measurements_path) as f:
+            measurements = json.load(f)
         
-        images = torch.stack(images)
-        
-        rand_idx = np.random.randint(0, len(questions))
+        route = measurements["route"]
 
-        question = questions[rand_idx]
-        answer = answers[rand_idx]
+        for i in range(20):
+            if i % 2 == 0:
+                route.append(route[i])
 
-        question = self.tokenizer(question, return_tensors="pt")
-        question_ids = question.input_ids
+        route = torch.tensor(route, dtype=torch.float32)
 
-        answer = self.tokenizer(answer, return_tensors="pt")
-        answer_ids = answer.input_ids
-
-        input_ids = torch.cat((question_ids, answer_ids), dim=1)
-        label_ids = input_ids.clone()
-
-        return images, input_ids, label_ids
-    
+        return image, route

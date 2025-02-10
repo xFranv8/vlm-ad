@@ -8,3 +8,6 @@
 *.tar.gz
 
 data/
+
+__pycache__/
+wandb/
